@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the Parableus platform.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "createdAt"]
+    },
+    "Theory": {
+      "title": "Theory",
+      "description": "A theory or idea shared by a user.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "upvotes": { "type": "number" },
+        "commentCount": { "type": "number" },
+        "parentId": { "type": "string" },
+        "parentTitle": { "type": "string" },
+        "forkCount": { "type": "number" }
+      },
+      "required": ["title", "content", "category", "authorId", "authorName", "createdAt", "upvotes", "commentCount", "forkCount"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a theory.",
+      "type": "object",
+      "properties": {
+        "theoryId": { "type": "string" },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["theoryId", "content", "authorId", "authorName", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles."
+    },
+    "/theories/{theoryId}": {
+      "schema": { "$ref": "#/entities/Theory" },
+      "description": "Stores theories shared by users."
+    },
+    "/theories/{theoryId}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/Comment" },
+      "description": "Stores comments on a specific theory."
+    }
+  }
+}

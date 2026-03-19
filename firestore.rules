@@ -1,0 +1,209 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - displayName: string (required)
+    //   - photoURL: string (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: theories
+    // Document ID: {theoryId}
+    // Fields:
+    //   - title: string (required, max 200 chars)
+    //   - content: string (required, max 10000 chars)
+    //   - category: string (required, in allowed categories)
+    //   - authorId: string (required, matches uid)
+    //   - authorName: string (required)
+    //   - authorPhoto: string (optional)
+    //   - createdAt: timestamp (required)
+    //   - upvotes: number (required)
+    //   - commentCount: number (required)
+    //
+    // Collection: theories/{theoryId}/comments
+    // Document ID: {commentId}
+    // Fields:
+    //   - theoryId: string (required)
+    //   - content: string (required, max 2000 chars)
+    //   - authorId: string (required, matches uid)
+    //   - authorName: string (required)
+    //   - authorPhoto: string (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: theories/{theoryId}/upvotes
+    // Document ID: {userId}
+    // Fields:
+    //   - createdAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.authorId;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser() {
+      return hasOnlyAllowedFields(['uid', 'displayName', 'photoURL', 'createdAt']) &&
+             hasRequiredFields(['uid', 'displayName', 'createdAt']) &&
+             validStringLength('uid', 1, 128) &&
+             validStringLength('displayName', 1, 100) &&
+             isValidOptionalString('photoURL', 0, 1000) &&
+             request.resource.data.createdAt is timestamp;
+    }
+
+    function isValidTheory() {
+      let allowedCategories = ['Science', 'Technology', 'Philosophy', 'Universe', 'Miscellaneous'];
+      return hasOnlyAllowedFields(['title', 'content', 'category', 'authorId', 'authorName', 'authorPhoto', 'createdAt', 'upvotes', 'commentCount', 'parentId', 'parentTitle', 'forkCount']) &&
+             hasRequiredFields(['title', 'content', 'category', 'authorId', 'authorName', 'createdAt', 'upvotes', 'commentCount', 'forkCount']) &&
+             validStringLength('title', 1, 200) &&
+             validStringLength('content', 1, 10000) &&
+             request.resource.data.category in allowedCategories &&
+             validStringLength('authorId', 1, 128) &&
+             validStringLength('authorName', 1, 100) &&
+             isValidOptionalString('authorPhoto', 0, 1000) &&
+             isValidOptionalString('parentId', 1, 128) &&
+             isValidOptionalString('parentTitle', 1, 200) &&
+             request.resource.data.createdAt is timestamp &&
+             request.resource.data.upvotes is number &&
+             request.resource.data.commentCount is number &&
+             request.resource.data.forkCount is number;
+    }
+
+    function isValidComment() {
+      return hasOnlyAllowedFields(['theoryId', 'content', 'authorId', 'authorName', 'authorPhoto', 'createdAt']) &&
+             hasRequiredFields(['theoryId', 'content', 'authorId', 'authorName', 'createdAt']) &&
+             validStringLength('theoryId', 1, 128) &&
+             validStringLength('content', 1, 2000) &&
+             validStringLength('authorId', 1, 128) &&
+             validStringLength('authorName', 1, 100) &&
+             isValidOptionalString('authorPhoto', 0, 1000) &&
+             request.resource.data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated(); // Public profiles for displaying authors
+      allow create: if isOwner(userId) && 
+                       isValidUser() && 
+                       request.resource.data.uid == userId;
+      allow update: if isOwner(userId) && 
+                       isValidUser() && 
+                       request.resource.data.uid == resource.data.uid &&
+                       request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /theories/{theoryId} {
+      allow read: if isAuthenticated();
+      
+      allow create: if isAuthenticated() && 
+                       isValidTheory() && 
+                       request.resource.data.authorId == request.auth.uid &&
+                       request.resource.data.upvotes == 0 &&
+                       request.resource.data.commentCount == 0 &&
+                       request.resource.data.forkCount == 0;
+                       
+      allow update: if isAuthenticated() && isValidTheory() && (
+        // Case 1: Owner updating content/title/category
+        (isDocOwner() && 
+         request.resource.data.authorId == resource.data.authorId &&
+         request.resource.data.createdAt == resource.data.createdAt &&
+         request.resource.data.upvotes == resource.data.upvotes &&
+         request.resource.data.commentCount == resource.data.commentCount &&
+         request.resource.data.forkCount == resource.data.forkCount &&
+         (!('parentId' in request.resource.data) || request.resource.data.parentId == resource.data.parentId) &&
+         (!('parentTitle' in request.resource.data) || request.resource.data.parentTitle == resource.data.parentTitle))
+        ||
+        // Case 2: Any authenticated user updating upvotes
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['upvotes']) &&
+         math.abs(request.resource.data.upvotes - resource.data.upvotes) == 1 &&
+         (
+           (request.resource.data.upvotes > resource.data.upvotes &&
+            !exists(/databases/$(database)/documents/theories/$(theoryId)/upvotes/$(request.auth.uid)) &&
+            getAfter(/databases/$(database)/documents/theories/$(theoryId)/upvotes/$(request.auth.uid)) != null) ||
+           (request.resource.data.upvotes < resource.data.upvotes &&
+            exists(/databases/$(database)/documents/theories/$(theoryId)/upvotes/$(request.auth.uid)) &&
+            getAfter(/databases/$(database)/documents/theories/$(theoryId)/upvotes/$(request.auth.uid)) == null)
+         ))
+        ||
+        // Case 3: Any authenticated user updating commentCount
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount']) &&
+         request.resource.data.commentCount == resource.data.commentCount + 1)
+        ||
+        // Case 4: Any authenticated user updating forkCount
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['forkCount']) &&
+         request.resource.data.forkCount == resource.data.forkCount + 1)
+      );
+      
+      allow delete: if isDocOwner();
+      
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && 
+                         isValidComment() && 
+                         request.resource.data.authorId == request.auth.uid &&
+                         request.resource.data.theoryId == theoryId;
+        allow update: if isAuthenticated() && 
+                         isValidComment() && 
+                         request.resource.data.authorId == resource.data.authorId &&
+                         request.resource.data.authorId == request.auth.uid &&
+                         request.resource.data.createdAt == resource.data.createdAt &&
+                         request.resource.data.theoryId == resource.data.theoryId;
+        allow delete: if isAuthenticated() && request.auth.uid == resource.data.authorId;
+      }
+      
+      match /upvotes/{userId} {
+        allow read: if isAuthenticated();
+        allow create: if isOwner(userId) && 
+                         hasOnlyAllowedFields(['createdAt']) &&
+                         request.resource.data.createdAt is timestamp;
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
