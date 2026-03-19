@@ -71,8 +71,8 @@ jobs:
         run: |
           cd functions && npm ci && cd ..
           rm -rf extensions
-          npm install -g firebase-tools@14.26.0
-          firebase deploy --only functions --project parableus --force
+          npm install -g firebase-tools
+          firebase deploy --except extensions --project parableus --force
         env:
           # Linking the auth to the deploy command
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
