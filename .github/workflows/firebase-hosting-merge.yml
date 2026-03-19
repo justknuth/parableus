@@ -71,7 +71,7 @@ jobs:
         run: |
           cd functions && npm ci && cd ..
           npm install -g firebase-tools
-          firebase deploy --only functions --except extensions --project parableus
+          firebase deploy --only functions, hosting --project parableus --force
 
       # 4. Deploy the Frontend Hosting
       - name: Deploy to Firebase Hosting
