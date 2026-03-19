@@ -1,10 +1,15 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
+import { defineSecret } from "firebase-functions/params";
 import express from "express";
 import * as admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import path from "path";
 import fs from "fs";
+import { GoogleGenAI } from "@google/genai";
+
+// Define the secret so Firebase knows to fetch it from Secret Manager
+const geminiApiKey = defineSecret("GEMINI_API_KEY");
 
 // 1. Setup Global Options (Cost Control)
 setGlobalOptions({ maxInstances: 10 });
@@ -33,12 +38,39 @@ app.use(express.json());
 // --- API ROUTES ---
 
 // Health Check
-app.get("/api/health", (req, res) => {
+app.get("/health", (req, res) => {
   return res.json({ status: "ok" });
 });
 
+// Chat Route (Proxy for Gemini)
+app.post("/chat", async (req, res) => {
+  try {
+    const { contents } = req.body;
+
+    if (!contents) {
+      return res.status(400).json({ error: "Missing contents" });
+    }
+
+    // Initialize the AI securely using the value pulled from the vault
+    const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
+
+    const response = await ai.models.generateContent({
+      model: 'gemma-3-27b-it',
+      contents: contents,
+      config: {
+        temperature: 1.3,
+      }
+    });
+
+    return res.json({ text: response.text });
+  } catch (error: any) {
+    console.error("Error generating chat response:", error);
+    return res.status(500).json({ error: "Failed to generate response" });
+  }
+});
+
 // Fetch Theories
-app.get("/api/theories", async (req, res) => {
+app.get("/theories", async (req, res) => {
   try {
     const snapshot = await db.collection("theories").orderBy("createdAt", "desc").limit(10).get();
     const theories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -50,7 +82,7 @@ app.get("/api/theories", async (req, res) => {
 });
 
 // Create Theory (and Fork)
-app.post("/api/theories", async (req, res) => {
+app.post("/theories", async (req, res) => {
   try {
     const { title, content, category, authorId, authorName, authorPhoto, parentId, parentTitle } = req.body;
 
@@ -94,7 +126,7 @@ app.post("/api/theories", async (req, res) => {
 });
 
 // Upvote Theory
-app.post("/api/theories/:id/upvote", async (req, res) => {
+app.post("/theories/:id/upvote", async (req, res) => {
   try {
     const { id } = req.params;
     const { userId } = req.body;
@@ -120,7 +152,7 @@ app.post("/api/theories/:id/upvote", async (req, res) => {
 });
 
 // Add Comment
-app.post("/api/theories/:id/comments", async (req, res) => {
+app.post("/theories/:id/comments", async (req, res) => {
   try {
     const { id } = req.params;
     const { content, authorId, authorName, authorPhoto } = req.body;
@@ -151,7 +183,7 @@ app.post("/api/theories/:id/comments", async (req, res) => {
 });
 
 // Add Reaction
-app.post("/api/theories/:id/react", async (req, res) => {
+app.post("/theories/:id/react", async (req, res) => {
   try {
     const { id } = req.params;
     const { reactionType, userId } = req.body;
@@ -170,5 +202,5 @@ app.post("/api/theories/:id/react", async (req, res) => {
   }
 });
 
-// --- EXPORT ---
-export const api = onRequest({ maxInstances: 10 }, app);
+// Add the secret requirement to the exported function
+export const api = onRequest({ maxInstances: 10, secrets: [geminiApiKey] }, app);

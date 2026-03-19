@@ -36,7 +36,6 @@ export default function App() {
   return (
     <Router>
       <div className="min-h-screen bg-[#0a0908] text-[#d4c4b7] font-sans flex overflow-hidden">
-        {/* Mobile Sidebar Toggle */}
         <button 
           className="md:hidden fixed top-4 left-4 z-50 p-2 bg-[#2a2422] rounded-xl shadow-md shadow-black/50 text-[#d4c4b7]"
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -44,7 +43,6 @@ export default function App() {
           {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
 
-        {/* Sidebar */}
         <AnimatePresence>
           {(isSidebarOpen || window.innerWidth >= 768) && (
             <motion.div 
