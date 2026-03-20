@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { collection, query, where, orderBy, onSnapshot, writeBatch, serverTimestamp, doc, increment } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User } from 'firebase/auth';
 import { formatDistanceToNow } from 'date-fns';
 import { MessageCircle, ArrowUp, Plus, X, GitFork } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import AuthModal from './AuthModal'; // <-- Imported the new component
+import AuthModal from './AuthModal';
+import { useUpvotes } from '../contexts/UpvoteContext';
 
 interface Theory {
   id: string;
@@ -33,6 +34,11 @@ export default function Feed({ user }: { user: User | null }) {
   const [newContent, setNewContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Global Upvote State
+  const { upvoteData, syncRealData, toggleUpvote } = useUpvotes();
+  const fetchedUpvotes = useRef<Set<string>>(new Set());
+
+  // 1. Fetch Theories
   useEffect(() => {
     if (!category) return;
 
@@ -47,6 +53,7 @@ export default function Feed({ user }: { user: User | null }) {
         id: doc.id,
         ...doc.data()
       })) as Theory[];
+      
       setTheories(theoriesData);
     }, (error) => {
       console.error("Error fetching theories:", error);
@@ -54,6 +61,27 @@ export default function Feed({ user }: { user: User | null }) {
 
     return () => unsubscribe();
   }, [category]);
+
+  // 2. Sync Real Database Vote Status with Global Context
+  useEffect(() => {
+    if (!user) {
+      fetchedUpvotes.current.clear();
+      return;
+    }
+
+    theories.forEach(theory => {
+      if (!fetchedUpvotes.current.has(theory.id)) {
+        fetchedUpvotes.current.add(theory.id);
+        const upvoteRef = doc(db, `theories/${theory.id}/upvotes`, user.uid);
+        
+        getDoc(upvoteRef).then(snap => {
+          syncRealData(theory.id, theory.upvotes, snap.exists());
+        }).catch(console.error);
+      } else if (!upvoteData[theory.id]) {
+        syncRealData(theory.id, theory.upvotes, false);
+      }
+    });
+  }, [theories, user, syncRealData, upvoteData]);
 
   const handleCreateTheory = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,9 +91,7 @@ export default function Feed({ user }: { user: User | null }) {
     try {
       const response = await fetch('/api/theories', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: newTitle.trim(),
           content: newContent.trim(),
@@ -76,9 +102,7 @@ export default function Feed({ user }: { user: User | null }) {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to post theory');
-      }
+      if (!response.ok) throw new Error('Failed to post theory');
 
       setIsCreating(false);
       setNewTitle('');
@@ -88,29 +112,6 @@ export default function Feed({ user }: { user: User | null }) {
       alert("Failed to post theory. Please try again.");
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleUpvote = async (theoryId: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (!user) {
-      setShowAuthModal(true);
-      return;
-    }
-
-    const batch = writeBatch(db);
-    const theoryRef = doc(db, 'theories', theoryId);
-    const upvoteRef = doc(db, `theories/${theoryId}/upvotes`, user.uid);
-
-    batch.update(theoryRef, { upvotes: increment(1) });
-    batch.set(upvoteRef, { createdAt: serverTimestamp() });
-
-    try {
-      await batch.commit();
-    } catch (error) {
-      console.error("Upvote failed:", error);
     }
   };
 
@@ -125,11 +126,8 @@ export default function Feed({ user }: { user: User | null }) {
           
           <button
             onClick={() => {
-              if (user) {
-                setIsCreating(true);
-              } else {
-                setShowAuthModal(true);
-              }
+              if (user) setIsCreating(true);
+              else setShowAuthModal(true);
             }}
             className="flex items-center space-x-2 bg-[#3c2f2f] hover:bg-[#4a3b3b] text-[#e8dcc7] px-4 py-2 rounded-xl transition-colors shadow-md shadow-black/50"
           >
@@ -138,11 +136,7 @@ export default function Feed({ user }: { user: User | null }) {
           </button>
         </header>
 
-        {/* The new AuthModal component */}
-        <AuthModal 
-          isOpen={showAuthModal} 
-          onClose={() => setShowAuthModal(false)} 
-        />
+        <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
         {/* Create Theory Modal */}
         <AnimatePresence>
@@ -189,18 +183,10 @@ export default function Feed({ user }: { user: User | null }) {
                     />
                   </div>
                   <div className="flex justify-end space-x-3 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => setIsCreating(false)}
-                      className="px-6 py-2 rounded-xl text-[#a89b8f] hover:bg-[#2a2422] transition-colors"
-                    >
+                    <button type="button" onClick={() => setIsCreating(false)} className="px-6 py-2 rounded-xl text-[#a89b8f] hover:bg-[#2a2422] transition-colors">
                       Cancel
                     </button>
-                    <button
-                      type="submit"
-                      disabled={isSubmitting || !newTitle.trim() || !newContent.trim()}
-                      className="px-6 py-2 bg-[#3c2f2f] hover:bg-[#4a3b3b] text-[#e8dcc7] rounded-xl transition-colors disabled:opacity-50"
-                    >
+                    <button type="submit" disabled={isSubmitting || !newTitle.trim() || !newContent.trim()} className="px-6 py-2 bg-[#3c2f2f] hover:bg-[#4a3b3b] text-[#e8dcc7] rounded-xl transition-colors disabled:opacity-50">
                       {isSubmitting ? 'Posting...' : 'Post Theory'}
                     </button>
                   </div>
@@ -218,61 +204,64 @@ export default function Feed({ user }: { user: User | null }) {
               <p>Be the first to share a discovery in {category}.</p>
             </div>
           ) : (
-            theories.map((theory) => (
-              <Link
-                key={theory.id}
-                to={`/theory/${theory.id}`}
-                className="block bg-[#1a1614] border border-[#2a2422] hover:border-[#3c2f2f] rounded-2xl p-6 transition-all duration-200 hover:shadow-lg hover:shadow-black/40"
-              >
-                <div className="flex items-start space-x-4">
-                  <button 
-                    onClick={(e) => handleUpvote(theory.id, e)}
-                    className="flex flex-col items-center space-y-1 text-[#a89b8f] hover:text-[#e8dcc7] transition-colors p-2 -ml-2 rounded-lg hover:bg-[#2a2422]/50"
-                  >
-                    <ArrowUp size={20} />
-                    <span className="font-medium">{theory.upvotes}</span>
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    {theory.parentId && theory.parentTitle && (
-                      <div className="flex items-center space-x-1 text-xs text-[#a89b8f] mb-2">
-                        <GitFork size={12} />
-                        <span>Evolved from: {theory.parentTitle}</span>
-                      </div>
-                    )}
-                    <h2 className="text-xl font-medium text-[#e8dcc7] mb-2 truncate">{theory.title}</h2>
-                    <p className="text-[#a89b8f] line-clamp-3 mb-4 leading-relaxed">
-                      {theory.content}
-                    </p>
-                    <div className="flex items-center text-sm text-[#a89b8f]/70 space-x-4">
-                      <div className="flex items-center space-x-2">
-                        {theory.authorPhoto ? (
-                          <img src={theory.authorPhoto} alt={theory.authorName} className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-5 h-5 rounded-full bg-[#3c2f2f]" />
-                        )}
-                        <span>{theory.authorName}</span>
-                      </div>
-                      <span>•</span>
-                      <span>{theory.createdAt ? formatDistanceToNow(theory.createdAt.toDate(), { addSuffix: true }) : 'Just now'}</span>
-                      <span>•</span>
-                      <div className="flex items-center space-x-1">
-                        <MessageCircle size={16} />
-                        <span>{theory.commentCount} comments</span>
-                      </div>
-                      {theory.forkCount > 0 && (
-                        <>
-                          <span>•</span>
-                          <div className="flex items-center space-x-1">
-                            <GitFork size={16} />
-                            <span>{theory.forkCount} evolutions</span>
-                          </div>
-                        </>
+            theories.map((theory) => {
+              // Tap into Global Context
+              const currentVoteData = upvoteData[theory.id] || { upvotes: theory.upvotes, hasUpvoted: false };
+
+              return (
+                <Link key={theory.id} to={`/theory/${theory.id}`} className="block bg-[#1a1614] border border-[#2a2422] hover:border-[#3c2f2f] rounded-2xl p-6 transition-all duration-200 hover:shadow-lg hover:shadow-black/40">
+                  <div className="flex items-start space-x-4">
+                    <button 
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleUpvote(theory.id, user?.uid, () => setShowAuthModal(true));
+                      }}
+                      className="flex flex-col items-center space-y-1 text-[#a89b8f] hover:text-[#e8dcc7] transition-colors p-2 -ml-2 rounded-lg hover:bg-[#2a2422]/50"
+                    >
+                      <ArrowUp size={20} className={currentVoteData.hasUpvoted ? "text-[#e8dcc7]" : ""} />
+                      <span className="font-medium">{currentVoteData.upvotes}</span>
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      {theory.parentId && theory.parentTitle && (
+                        <div className="flex items-center space-x-1 text-xs text-[#a89b8f] mb-2">
+                          <GitFork size={12} />
+                          <span>Evolved from: {theory.parentTitle}</span>
+                        </div>
                       )}
+                      <h2 className="text-xl font-medium text-[#e8dcc7] mb-2 truncate">{theory.title}</h2>
+                      <p className="text-[#a89b8f] line-clamp-3 mb-4 leading-relaxed">{theory.content}</p>
+                      <div className="flex items-center text-sm text-[#a89b8f]/70 space-x-4">
+                        <div className="flex items-center space-x-2">
+                          {theory.authorPhoto ? (
+                            <img src={theory.authorPhoto} alt={theory.authorName} className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="w-5 h-5 rounded-full bg-[#3c2f2f]" />
+                          )}
+                          <span>{theory.authorName}</span>
+                        </div>
+                        <span>•</span>
+                        <span>{theory.createdAt ? formatDistanceToNow(theory.createdAt.toDate(), { addSuffix: true }) : 'Just now'}</span>
+                        <span>•</span>
+                        <div className="flex items-center space-x-1">
+                          <MessageCircle size={16} />
+                          <span>{theory.commentCount} comments</span>
+                        </div>
+                        {theory.forkCount > 0 && (
+                          <>
+                            <span>•</span>
+                            <div className="flex items-center space-x-1">
+                              <GitFork size={16} />
+                              <span>{theory.forkCount} evolutions</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </Link>
-            ))
+                </Link>
+              );
+            })
           )}
         </div>
       </div>

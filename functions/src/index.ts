@@ -38,12 +38,12 @@ app.use(express.json());
 // --- API ROUTES ---
 
 // Health Check
-app.get("/api/health", (req, res) => {
+app.get("/health", (req, res) => {
   return res.json({ status: "ok" });
 });
 
 // Chat Route (Proxy for Gemini)
-app.post("/api/chat", async (req, res) => {
+app.post("/chat", async (req, res) => {
   try {
     const { contents } = req.body;
 
@@ -70,7 +70,7 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // Fetch Theories
-app.get("/api/theories", async (req, res) => {
+app.get("/theories", async (req, res) => {
   try {
     const snapshot = await db.collection("theories").orderBy("createdAt", "desc").limit(10).get();
     const theories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -82,7 +82,7 @@ app.get("/api/theories", async (req, res) => {
 });
 
 // Create Theory (and Fork)
-app.post("/api/theories", async (req, res) => {
+app.post("/theories", async (req, res) => {
   try {
     const { title, content, category, authorId, authorName, authorPhoto, parentId, parentTitle } = req.body;
 
@@ -126,7 +126,7 @@ app.post("/api/theories", async (req, res) => {
 });
 
 // Upvote Theory
-app.post("/api/theories/:id/upvote", async (req, res) => {
+app.post("/theories/:id/upvote", async (req, res) => {
   try {
     const { id } = req.params;
     const { userId } = req.body;
@@ -152,7 +152,7 @@ app.post("/api/theories/:id/upvote", async (req, res) => {
 });
 
 // Add Comment
-app.post("/api/theories/:id/comments", async (req, res) => {
+app.post("/theories/:id/comments", async (req, res) => {
   try {
     const { id } = req.params;
     const { content, authorId, authorName, authorPhoto } = req.body;
@@ -183,7 +183,7 @@ app.post("/api/theories/:id/comments", async (req, res) => {
 });
 
 // Add Reaction
-app.post("/api/theories/:id/react", async (req, res) => {
+app.post("/theories/:id/react", async (req, res) => {
   try {
     const { id } = req.params;
     const { reactionType, userId } = req.body;
