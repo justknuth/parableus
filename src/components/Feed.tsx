@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, writeBatch, serverTimestamp, doc, increment } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User } from 'firebase/auth';
 import { formatDistanceToNow } from 'date-fns';
 import { MessageCircle, ArrowUp, Plus, X, GitFork } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import AuthModal from './AuthModal'; // <-- Imported the new component
 
 interface Theory {
   id: string;
@@ -27,6 +28,7 @@ export default function Feed({ user }: { user: User | null }) {
   const { category } = useParams<{ category: string }>();
   const [theories, setTheories] = useState<Theory[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -89,6 +91,29 @@ export default function Feed({ user }: { user: User | null }) {
     }
   };
 
+  const handleUpvote = async (theoryId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    const batch = writeBatch(db);
+    const theoryRef = doc(db, 'theories', theoryId);
+    const upvoteRef = doc(db, `theories/${theoryId}/upvotes`, user.uid);
+
+    batch.update(theoryRef, { upvotes: increment(1) });
+    batch.set(upvoteRef, { createdAt: serverTimestamp() });
+
+    try {
+      await batch.commit();
+    } catch (error) {
+      console.error("Upvote failed:", error);
+    }
+  };
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#0a0908] relative">
       <div className="max-w-4xl mx-auto p-6 md:p-12">
@@ -97,16 +122,27 @@ export default function Feed({ user }: { user: User | null }) {
             <h1 className="text-4xl md:text-5xl font-serif tracking-tight text-[#e8dcc7] mb-2">{category}</h1>
             <p className="text-[#a89b8f]">Theories and discoveries</p>
           </div>
-          {user && (
-            <button
-              onClick={() => setIsCreating(true)}
-              className="flex items-center space-x-2 bg-[#3c2f2f] hover:bg-[#4a3b3b] text-[#e8dcc7] px-4 py-2 rounded-xl transition-colors shadow-md shadow-black/50"
-            >
-              <Plus size={20} />
-              <span className="hidden sm:inline">Share Theory</span>
-            </button>
-          )}
+          
+          <button
+            onClick={() => {
+              if (user) {
+                setIsCreating(true);
+              } else {
+                setShowAuthModal(true);
+              }
+            }}
+            className="flex items-center space-x-2 bg-[#3c2f2f] hover:bg-[#4a3b3b] text-[#e8dcc7] px-4 py-2 rounded-xl transition-colors shadow-md shadow-black/50"
+          >
+            <Plus size={20} />
+            <span className="hidden sm:inline">Share Theory</span>
+          </button>
         </header>
+
+        {/* The new AuthModal component */}
+        <AuthModal 
+          isOpen={showAuthModal} 
+          onClose={() => setShowAuthModal(false)} 
+        />
 
         {/* Create Theory Modal */}
         <AnimatePresence>
@@ -189,10 +225,13 @@ export default function Feed({ user }: { user: User | null }) {
                 className="block bg-[#1a1614] border border-[#2a2422] hover:border-[#3c2f2f] rounded-2xl p-6 transition-all duration-200 hover:shadow-lg hover:shadow-black/40"
               >
                 <div className="flex items-start space-x-4">
-                  <div className="flex flex-col items-center space-y-1 text-[#a89b8f]">
-                    <ArrowUp size={20} className="hover:text-[#e8dcc7] transition-colors" />
+                  <button 
+                    onClick={(e) => handleUpvote(theory.id, e)}
+                    className="flex flex-col items-center space-y-1 text-[#a89b8f] hover:text-[#e8dcc7] transition-colors p-2 -ml-2 rounded-lg hover:bg-[#2a2422]/50"
+                  >
+                    <ArrowUp size={20} />
                     <span className="font-medium">{theory.upvotes}</span>
-                  </div>
+                  </button>
                   <div className="flex-1 min-w-0">
                     {theory.parentId && theory.parentTitle && (
                       <div className="flex items-center space-x-1 text-xs text-[#a89b8f] mb-2">
