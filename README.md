@@ -75,6 +75,4 @@ At the heart of Parableus is an integrated AI assistant powered by Gemini. This 
 
 ## The Philosophy
 
-*"10,000,000 everyday people put together might be able to make discoveries across science, tech, philosophy, and more that one scientist couldn't."*
-
 Parableus embraces the unknown. It doesn't just seek the correct answer; it seeks the *interesting* answer. Let your mind wander.

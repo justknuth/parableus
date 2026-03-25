@@ -17,7 +17,7 @@ export default function Categories() {
         <header className="mb-12">
           <h1 className="text-4xl md:text-5xl font-serif tracking-tight text-[#e8dcc7] mb-4">Theories</h1>
           <p className="text-lg text-[#a89b8f] max-w-2xl">
-            Explore the collective imagination. 10,000,000 everyday people might discover what one scientist cannot.
+            Explore the collective imagination. 
           </p>
         </header>
 

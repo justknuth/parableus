@@ -26,7 +26,7 @@ try {
 } catch (e) {
   console.error("Could not read firebase config", e);
 }
-
+ 
 // Initialize Admin SDK
 admin.initializeApp();
 const db = getFirestore(admin.app(), firestoreDatabaseId);
